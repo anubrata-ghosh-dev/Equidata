@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(139, 92, 246, 0.16), transparent 30%),
+    radial-gradient(circle at 85% 15%, rgba(91, 124, 255, 0.18), transparent 35%),
+    linear-gradient(180deg, #09090d 0%, #0f1017 55%, #0a0b10 100%);
+  color: #f5f7ff;
+}
+
+.panel {
+  @apply rounded-xl3 border border-white/10 bg-panel shadow-panel backdrop-blur;
+}
+
+.panel-soft {
+  @apply rounded-xl2 border border-white/10 bg-panelSoft/90 shadow-panel;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200;
+  background: linear-gradient(135deg, #5b7cff, #8b5cf6);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgba(91, 124, 255, 0.35);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-semibold text-textMain transition-all duration-200;
+}
+
+.btn-secondary:hover {
+  @apply bg-white/10;
+}
+
+.input-field {
+  @apply w-full rounded-xl border border-white/15 bg-black/25 px-3 py-2.5 text-sm text-textMain outline-none transition-all duration-150;
+}
+
+.input-field:focus {
+  @apply border-accent shadow-glow;
+}
+
+.fade-in {
+  animation: fade-in 0.45s ease-out both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

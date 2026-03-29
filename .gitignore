@@ -1,0 +1,14 @@
+# Node / Next
+node_modules/
+.next/
+
+# Python
+venv/
+__pycache__/
+pycache/
+
+# Env files
+.env
+
+# macOS
+.DS_Store
