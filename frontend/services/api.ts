@@ -1,45 +1,68 @@
 import axios from "axios";
 
 export type DecisionLabel = "Approved" | "Rejected";
+export type ScenarioType = "hiring" | "loan_approval" | "college_admission";
 export const GENERIC_API_ERROR = "Something went wrong. Try again.";
 
 export interface FormDataPayload {
   gender: string;
-  race: string;
-  religion: string;
   caste: string;
-  profession: string;
-  income: number;
-  education: string;
-  experience_years: number;
+  religion: string;
+  experience?: number;
+  education_level?: string;
+  college_tier?: string;
+  skills_score?: number;
+  expected_salary?: number;
+  loan_amount?: number;
+  interest_rate?: number;
+  monthly_income?: number;
+  profession?: string;
+  entrance_score?: number;
+  family_income?: number;
+  parents_education?: string;
+  previous_academic_score?: number;
 }
 
 export interface PredictRequest {
+  scenario?: ScenarioType;
   features: FormDataPayload;
-  sensitive_column: string;
 }
 
 export interface PredictResponse {
-  decision: "Approved" | "Rejected";
+  input_features: Record<string, string | number>;
+  biased_prediction: "Approved" | "Rejected";
+  fair_prediction: "Approved" | "Rejected";
+  biased_probability: number;
+  fair_probability: number;
+  bias_gap: number;
+  prediction: "Approved" | "Rejected";
   confidence: number;
   bias_flag: boolean;
-  bias_score: number;
-  fairness_score_before: number;
-  fairness_score_after: number;
-  mitigated_decision: "Approved" | "Rejected";
-  mitigated_confidence: number;
-  group_metrics: {
-    male_rate: number;
-    female_rate: number;
-    caste_rates: Record<string, number>;
-  };
 }
 
 export interface MitigateRequest extends PredictRequest {}
 
 export interface MitigateResponse extends PredictResponse {}
 
+export interface AuditCurrentRequest {
+  scenario: ScenarioType;
+  features: FormDataPayload;
+}
+
+export interface AuditCurrentResponse {
+  input_features: Record<string, string | number>;
+  biased_prediction: "Approved" | "Rejected";
+  fair_prediction: "Approved" | "Rejected";
+  biased_probability: number;
+  fair_probability: number;
+  bias_gap: number;
+  bias_flag: boolean;
+  confidence: number;
+  contributions: Record<string, number>;
+}
+
 export interface BiasDecompositionRequest {
+  scenario: ScenarioType;
   features?: FormDataPayload;
 }
 
@@ -77,7 +100,11 @@ const api = axios.create({
 
 function toApiError(error: unknown): Error {
   if (axios.isAxiosError(error)) {
+    const errorMessage = error.response?.data?.error;
     const detail = error.response?.data?.detail;
+    if (typeof errorMessage === "string" && errorMessage.trim().length > 0) {
+      return new Error(errorMessage);
+    }
     if (typeof detail === "string" && detail.trim().length > 0) {
       return new Error(detail);
     }
@@ -87,7 +114,10 @@ function toApiError(error: unknown): Error {
 
 export async function predict(data: PredictRequest): Promise<PredictResponse> {
   try {
-    const response = await api.post<PredictResponse>("/predict", data);
+    const response = await api.post<PredictResponse>("/predict", {
+      scenario: data.scenario ?? "hiring",
+      features: data.features,
+    });
     return response.data;
   } catch (error: unknown) {
     throw toApiError(error);
@@ -112,8 +142,17 @@ export async function fetchBiasDecomposition(data: BiasDecompositionRequest): Pr
   }
 }
 
-export function toDecisionLabel(value: DecisionLabel): DecisionLabel {
-  return value;
+export async function fetchCurrentAudit(data: AuditCurrentRequest): Promise<AuditCurrentResponse> {
+  try {
+    const response = await api.post<AuditCurrentResponse>("/audit/current", data);
+    return response.data;
+  } catch (error: unknown) {
+    throw toApiError(error);
+  }
+}
+
+export function toDecisionLabel(value: string): DecisionLabel {
+  return value === "Approved" ? "Approved" : "Rejected";
 }
 
 export default api;

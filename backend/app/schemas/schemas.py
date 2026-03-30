@@ -26,8 +26,8 @@ class TrainResponse(BaseModel):
 
 
 class PredictionRequest(BaseModel):
+    scenario: str = Field(default="hiring", description="One of: hiring, loan_approval, college_admission")
     features: dict[str, Any]
-    sensitive_column: str = Field(default="gender")
 
 
 class GroupMetrics(BaseModel):
@@ -37,27 +37,45 @@ class GroupMetrics(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    decision: str
+    input_features: dict[str, Any]
+    biased_prediction: str
+    fair_prediction: str
+    biased_probability: float
+    fair_probability: float
+    bias_gap: float
+    prediction: str
     confidence: float
     bias_flag: bool
-    bias_score: float
-    fairness_score_before: float
-    fairness_score_after: float
-    mitigated_decision: str
-    mitigated_confidence: float
-    group_metrics: GroupMetrics
 
 
 class MitigateRequest(BaseModel):
+    scenario: str = Field(default="hiring", description="One of: hiring, loan_approval, college_admission")
     features: dict[str, Any]
-    sensitive_column: str = Field(default="gender")
 
 
 class MitigateResponse(PredictionResponse):
     pass
 
 
+class AuditCurrentRequest(BaseModel):
+    scenario: str = Field(default="hiring", description="One of: hiring, loan_approval, college_admission")
+    features: dict[str, Any]
+
+
+class AuditCurrentResponse(BaseModel):
+    input_features: dict[str, Any]
+    biased_prediction: str
+    fair_prediction: str
+    biased_probability: float
+    fair_probability: float
+    bias_gap: float
+    bias_flag: bool
+    confidence: float
+    contributions: dict[str, float]
+
+
 class BiasDecompositionRequest(BaseModel):
+    scenario: str = Field(default="hiring", description="One of: hiring, loan_approval, college_admission")
     features: Optional[dict[str, Any]] = None
 
 

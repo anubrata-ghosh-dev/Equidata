@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 
@@ -17,6 +18,11 @@ from app.utils.utils import normalize_binary_target
 
 
 SENSITIVE_COLUMNS = ["gender", "caste", "religion"]
+HIRING_FEATURE_COLUMNS = ["experience", "education_level", "college_tier", "skills_score", "expected_salary"]
+HIRING_CATEGORICAL_COLUMNS = ["education_level", "college_tier"]
+
+# Global encoders are reused at prediction time to keep train/predict mappings identical.
+GLOBAL_LABEL_ENCODERS: dict[str, LabelEncoder] = {}
 
 
 @dataclass
@@ -26,6 +32,7 @@ class TrainedModel:
     target_column: str
     sensitive_column: str
     dropped_sensitive: bool
+    label_encoders: dict[str, LabelEncoder] | None = None
 
 
 def _make_one_hot_encoder() -> OneHotEncoder:
@@ -49,6 +56,8 @@ def train_model(
     target_column: str,
     sensitive_column: str,
     dropped_sensitive_columns: list[str] | None = None,
+    forced_feature_columns: list[str] | None = None,
+    label_encode_columns: list[str] | None = None,
 ) -> TrainedModel:
     if sensitive_column not in df.columns:
         raise HTTPException(status_code=400, detail=f"Sensitive column '{sensitive_column}' not found.")
@@ -56,12 +65,33 @@ def train_model(
     dropped_sensitive_columns = dropped_sensitive_columns or []
 
     y = normalize_binary_target(df, target_column)
-    features = [col for col in df.columns if col != target_column and col not in dropped_sensitive_columns]
+
+    if forced_feature_columns is not None:
+        missing = [col for col in forced_feature_columns if col not in df.columns]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Missing training feature columns: {missing}")
+        features = [col for col in forced_feature_columns if col not in dropped_sensitive_columns]
+    else:
+        features = [col for col in df.columns if col != target_column and col not in dropped_sensitive_columns]
+
     if not features:
         raise HTTPException(status_code=400, detail="No usable feature columns remain for training.")
     X = df[features].copy()
 
-    categorical_cols = X.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+    label_encoders: dict[str, LabelEncoder] = {}
+    for col in (label_encode_columns or []):
+        if col not in X.columns:
+            raise HTTPException(status_code=400, detail=f"Label-encode column '{col}' not found in features.")
+        encoder = LabelEncoder()
+        X[col] = encoder.fit_transform(X[col].astype(str).str.strip().str.lower())
+        label_encoders[col] = encoder
+        GLOBAL_LABEL_ENCODERS[col] = encoder
+
+    categorical_cols = [
+        col
+        for col in X.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+        if col not in label_encoders
+    ]
     numeric_cols = [col for col in X.columns if col not in categorical_cols]
 
     preprocessor = ColumnTransformer(
@@ -94,6 +124,7 @@ def train_model(
         target_column=target_column,
         sensitive_column=sensitive_column,
         dropped_sensitive=bool(dropped_sensitive_columns),
+        label_encoders=label_encoders or None,
     )
 
 
@@ -101,13 +132,23 @@ def train_biased_and_fair_models(
     df: pd.DataFrame,
     target_column: str,
     sensitive_column: str,
+    forced_feature_columns: list[str] | None = None,
+    label_encode_columns: list[str] | None = None,
 ) -> tuple[TrainedModel, TrainedModel]:
-    biased = train_model(df=df, target_column=target_column, sensitive_column=sensitive_column)
+    biased = train_model(
+        df=df,
+        target_column=target_column,
+        sensitive_column=sensitive_column,
+        forced_feature_columns=forced_feature_columns,
+        label_encode_columns=label_encode_columns,
+    )
     fair = train_model(
         df=df,
         target_column=target_column,
         sensitive_column=sensitive_column,
         dropped_sensitive_columns=[col for col in SENSITIVE_COLUMNS if col in df.columns],
+        forced_feature_columns=forced_feature_columns,
+        label_encode_columns=label_encode_columns,
     )
     return biased, fair
 
@@ -122,8 +163,24 @@ def _build_feature_row(features: dict[str, Any], required_columns: list[str]) ->
     return pd.DataFrame([row])
 
 
+def _apply_label_encoders_to_row(X: pd.DataFrame, model_bundle: TrainedModel) -> pd.DataFrame:
+    encoders = model_bundle.label_encoders or {}
+    if not encoders:
+        return X
+
+    for col, encoder in encoders.items():
+        if col not in X.columns:
+            continue
+        raw_val = str(X.at[0, col]).strip().lower()
+        if raw_val not in encoder.classes_:
+            raise HTTPException(status_code=400, detail=f"Unknown category '{raw_val}' for column '{col}'.")
+        X.at[0, col] = int(encoder.transform([raw_val])[0])
+    return X
+
+
 def predict_single(model_bundle: TrainedModel, features: dict[str, Any]) -> tuple[int, float]:
     X = _build_feature_row(features, model_bundle.feature_columns)
+    X = _apply_label_encoders_to_row(X, model_bundle)
     prob = float(model_bundle.pipeline.predict_proba(X)[0][1])
     decision = 1 if prob >= 0.5 else 0
     return decision, prob
@@ -131,6 +188,14 @@ def predict_single(model_bundle: TrainedModel, features: dict[str, Any]) -> tupl
 
 def predict_batch_probabilities(model_bundle: TrainedModel, df: pd.DataFrame) -> pd.Series:
     X = df[model_bundle.feature_columns].copy()
+    if model_bundle.label_encoders:
+        for col, encoder in model_bundle.label_encoders.items():
+            if col in X.columns:
+                X[col] = X[col].astype(str).str.strip().str.lower()
+                unknown = sorted(set(X[col].unique()) - set(encoder.classes_))
+                if unknown:
+                    raise HTTPException(status_code=400, detail=f"Unknown categories for '{col}': {unknown}")
+                X[col] = encoder.transform(X[col])
     probs = model_bundle.pipeline.predict_proba(X)[:, 1]
     return pd.Series(probs, index=df.index, name="probability")
 
